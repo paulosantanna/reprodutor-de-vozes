@@ -26,6 +26,16 @@ Only the first 30 seconds of the audio file will be processed.
 - `--quiet`: Do not print any output except errors.
 - `--language`: Language for the TTS model, one of `'english_2026-01'`, `'english_2026-04'`, `'english_2026-09'`, `'english_drifting_26-09'`, `'english'`, `'french'`, `'french_24l'`, `'german'`, `'german_24l'`, `'portuguese'`, `'portuguese_24l'`, `'italian'`, `'italian_24l'`, `'spanish'`, `'spanish_24l'`, `'dutch'`, `'dutch_24l'` (default: `english`, which is the same model as `'english_2026-09'`). Incompatible with `--config`. The "24l" variants are bigger models, not distilled yet and here only as preview.
 - `--config`: Model config yaml path — a local path, an `https://` URL, or an `hf://` path. Incompatible with `--language`.
+- `--timbre`, `--pitch`, `--eq-low`, `--eq-mid`, `--eq-high`: Voice controls saved into the exported file. Later `generate` and `serve` calls apply them unless a flag overrides that control. See [generate](generate.md) for the units.
+
+## Changing a voice that is already cloned
+
+`tune-voice` rewrites the profile on a `.safetensors` voice without encoding the audio again. Flags you omit keep their saved values. Use `--output-path` to write a new file; otherwise the voice is updated in place.
+
+```bash
+pocket-tts tune-voice jack.safetensors --pitch -1.5 --eq-low 2
+pocket-tts generate --voice jack.safetensors --text "Hello."
+```
 
 ## Examples
 

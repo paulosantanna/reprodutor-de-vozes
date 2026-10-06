@@ -21,6 +21,9 @@ This starts a server on `http://localhost:8000` with the default voice model.
 - `--config`: Path to a custom config .yaml — a local path, an `https://` URL, or an `hf://` path. Incompatible with `--language`.
 - `--default-voice`: Voice used by the requests that don't ask for one (default: the built-in voice of the language). It accepts anything the `generate --voice` option accepts: a built-in voice name, a local path to an audio file or to a `.safetensors` voice, an `https://` URL, or an `hf://` path. It is loaded at startup, so a voice that cannot be read fails the server immediately instead of the first request.
 - `--quantize`: Use int8 quantization for the model (default: False). This can reduce memory usage and increase speed, with minimal impact on audio quality.
+- `--timbre`, `--pitch`, `--eq-low`, `--eq-mid`, `--eq-high`: Store voice controls on the default voice at startup. Requests that omit a control use the saved value. See [generate](generate.md) for the units.
+
+The web page has the same controls. `POST /tts` accepts `timbre`, `pitch`, `eq_low`, `eq_mid`, and `eq_high`. `POST /voice/profile` saves those settings onto the chosen voice and returns a `voice_id`. Later `POST /tts` calls can pass that `voice_id`, and `GET /voice/profile/{voice_id}` downloads the `.safetensors` file.
 ## Examples
 
 ### Basic Server

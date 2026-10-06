@@ -20,7 +20,9 @@ from torch.nn import functional as F
 from typing_extensions import Self
 
 from pocket_tts.data.audio import audio_read
+from pocket_tts.data.audio_effects import stream_with_profile
 from pocket_tts.data.audio_utils import convert_audio, end_on_pause
+from pocket_tts.data.voice_profile import VoiceProfile, profile_from_state, write_profile
 from pocket_tts.default_parameters import (
     DEFAULT_EOS_THRESHOLD,
     DEFAULT_LANGUAGE,
@@ -579,6 +581,7 @@ class TTSModel(nn.Module):
         max_tokens: int = MAX_TOKEN_PER_CHUNK,
         frames_after_eos: int | None = None,
         copy_state: bool = True,
+        voice_profile: VoiceProfile | None = None,
     ) -> torch.Tensor:
         """Generate complete audio tensor from text input.
 
@@ -602,6 +605,9 @@ class TTSModel(nn.Module):
             copy_state: Whether to create a deep copy of the model state before
                 generation. If True, preserves the original state for reuse.
                 If False, modifies the input state in-place. Defaults to True.
+            voice_profile: Timbre, pitch, and EQ applied to the synthesized audio.
+                If None, the profile stored on `model_state` is used. If given, it
+                replaces that profile for this call.
 
         Returns:
             torch.Tensor: Generated audio tensor with shape [channels, samples]
@@ -635,6 +641,7 @@ class TTSModel(nn.Module):
             frames_after_eos=frames_after_eos,
             copy_state=copy_state,
             max_tokens=max_tokens,
+            voice_profile=voice_profile,
         ):
             audio_chunks.append(chunk)
         return torch.cat(audio_chunks, dim=0)
@@ -648,6 +655,7 @@ class TTSModel(nn.Module):
         frames_after_eos: int | None = None,
         copy_state: bool = True,
         stop: threading.Event | None = None,
+        voice_profile: VoiceProfile | None = None,
     ) -> Iterator[torch.Tensor]:
         """Generate audio streaming chunks from text input.
 
@@ -673,6 +681,9 @@ class TTSModel(nn.Module):
             stop: Optional event for cancelling the generation, for instance
                 when the user interrupts the playback. Once set, no new frames
                 are generated and the stream ends early.
+            voice_profile: Timbre, pitch, and EQ applied to each yielded chunk.
+                If None, the profile stored on `model_state` is used. If given, it
+                replaces that profile for this call.
 
         Yields:
             torch.Tensor: Audio chunks with shape [samples] at the model's
@@ -706,6 +717,16 @@ class TTSModel(nn.Module):
             frames_after_eos = self.model_recommended_frames_after_eos
         if stop is None:
             stop = threading.Event()
+        profile = voice_profile if voice_profile is not None else profile_from_state(model_state)
+        if not profile.is_neutral():
+            logger.info(
+                "Applying voice profile timbre=%.2f dB pitch=%.2f st eq=%.2f/%.2f/%.2f dB",
+                profile.timbre,
+                profile.pitch_semitones,
+                profile.eq_low_db,
+                profile.eq_mid_db,
+                profile.eq_high_db,
+            )
 
         # This is a very simplistic way of handling long texts. We could do much better
         # by using teacher forcing, but it would be a bit slower.
@@ -722,28 +743,34 @@ class TTSModel(nn.Module):
             replace_characters=self.replace_characters,
         )
 
-        for chunk in chunks:
-            if stop.is_set():
-                break
-            text_to_generate, frames_after_eos_guess = prepare_text_prompt(
-                chunk,
-                self.pad_with_spaces_for_short_inputs,
-                self.remove_semicolons,
-                self.append_terminal_punctuation,
-                self.capitalize_first_letter,
-                self.replace_characters,
-            )
-            frames_after_eos_guess += 2
-            effective_frames = (
-                frames_after_eos if frames_after_eos is not None else frames_after_eos_guess
-            )
-            yield from self._generate_audio_stream_short_text(
-                model_state=model_state,
-                text_to_generate=text_to_generate,
-                frames_after_eos=effective_frames,
-                copy_state=copy_state,
-                stop=stop,
-            )
+        def raw_audio() -> Iterator[torch.Tensor]:
+            for chunk in chunks:
+                if stop.is_set():
+                    break
+                text_to_generate, frames_after_eos_guess = prepare_text_prompt(
+                    chunk,
+                    self.pad_with_spaces_for_short_inputs,
+                    self.remove_semicolons,
+                    self.append_terminal_punctuation,
+                    self.capitalize_first_letter,
+                    self.replace_characters,
+                )
+                frames_after_eos_guess += 2
+                effective_frames = (
+                    frames_after_eos if frames_after_eos is not None else frames_after_eos_guess
+                )
+                yield from self._generate_audio_stream_short_text(
+                    model_state=model_state,
+                    text_to_generate=text_to_generate,
+                    frames_after_eos=effective_frames,
+                    copy_state=copy_state,
+                    stop=stop,
+                )
+
+        if profile.is_neutral():
+            yield from raw_audio()
+        else:
+            yield from stream_with_profile(raw_audio(), self.sample_rate, profile)
 
     @torch.no_grad
     def _generate_audio_stream_short_text(
@@ -920,7 +947,10 @@ class TTSModel(nn.Module):
 
     @torch.no_grad
     def get_state_for_audio_prompt(
-        self, audio_conditioning: Path | str | torch.Tensor, truncate: bool = False
+        self,
+        audio_conditioning: Path | str | torch.Tensor,
+        truncate: bool = False,
+        voice_profile: VoiceProfile | None = None,
     ) -> ModelState:
         """Create model state conditioned on audio prompt for continuation.
 
@@ -936,6 +966,9 @@ class TTSModel(nn.Module):
                 - torch.Tensor: Pre-loaded audio tensor with shape [channels, samples]
             truncate: Whether to truncate long audio prompts to 30 seconds.
                 Helps prevent memory issues with very long inputs. Defaults to False.
+            voice_profile: Optional timbre, pitch, and EQ stored on the returned state
+                and on a later `export_model_state` of that state. Replaces any profile
+                already stored in a loaded `.safetensors` voice.
 
         Returns:
             dict: Model state dictionary containing hidden states and positional
@@ -982,7 +1015,10 @@ class TTSModel(nn.Module):
             if isinstance(audio_conditioning, str):
                 audio_conditioning = download_if_necessary(audio_conditioning)
 
-            return _import_model_state(audio_conditioning, self.device)
+            model_state = _import_model_state(audio_conditioning, self.device)
+            if voice_profile is not None:
+                write_profile(model_state, voice_profile)
+            return model_state
 
         elif (
             isinstance(audio_conditioning, str)
@@ -1002,12 +1038,15 @@ class TTSModel(nn.Module):
                     f"is not loaded from a config associated with a language."
                     f"Here the origin is {self.origin}"
                 )
-            return _import_model_state(
+            model_state = _import_model_state(
                 download_if_necessary(
                     get_predefined_voice(language=self.origin.stem, name=audio_conditioning)
                 ),
                 self.device,
             )
+            if voice_profile is not None:
+                write_profile(model_state, voice_profile)
+            return model_state
 
         if not self.has_voice_cloning and isinstance(audio_conditioning, (str, Path)):
             raise ValueError(VOICE_CLONING_UNSUPPORTED)
@@ -1044,6 +1083,8 @@ class TTSModel(nn.Module):
             "Size of the model state for audio prompt: %d MB", size_of_dict(model_state) // 1e6
         )
 
+        if voice_profile is not None:
+            write_profile(model_state, voice_profile)
         return model_state
 
     def _estimate_max_gen_len(self, token_count: int) -> int:

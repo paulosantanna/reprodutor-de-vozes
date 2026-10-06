@@ -23,6 +23,7 @@ class FakeTTSModel:
         self.config = SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000))
         self.voices_requested: list[Path | str | torch.Tensor] = []
         self.states_used: list[dict[str, Any]] = []
+        self.profiles_used: list[object] = []
 
     def get_state_for_audio_prompt(
         self, audio_conditioning: Path | str | torch.Tensor, truncate: bool = False
@@ -40,8 +41,10 @@ class FakeTTSModel:
         model_state: dict[str, Any],
         text_to_generate: str,
         stop: threading.Event | None = None,
+        voice_profile: object = None,
     ) -> Iterator[torch.Tensor]:
         self.states_used.append(model_state)
+        self.profiles_used.append(voice_profile)
         yield torch.zeros(2400)
 
 
