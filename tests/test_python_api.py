@@ -6,7 +6,7 @@ from pocket_tts.models.tts_model import TTSModel as TTSModelImpl
 
 
 def test_public_api_exports_only_tts_model():
-    assert pocket_tts.__all__ == ["TTSModel", "export_model_state"]
+    assert pocket_tts.__all__ == ["TTSModel", "VoiceProfile", "export_model_state"]
 
 
 def test_public_api_tts_model_points_to_implementation():

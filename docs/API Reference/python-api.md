@@ -178,6 +178,22 @@ for chunk in model.generate_audio_stream(voice_state, "Long text content..."):
 ```
 
 
+## Voice controls
+
+`VoiceProfile` is timbre (spectral brightness in dB), pitch (semitones), and a low / mid / high EQ in dB. Pass it to `get_state_for_audio_prompt` or `generate_audio` / `generate_audio_stream`. A profile stored on the voice state is exported with `export_model_state` and applied again the next time that voice is loaded. `pocket_tts.models.model_state.retune_saved_voice` changes the profile of an existing `.safetensors` voice without encoding the prompt again.
+
+```python
+from pocket_tts import TTSModel, VoiceProfile, export_model_state
+
+model = TTSModel.load_model()
+profile = VoiceProfile(timbre=3, pitch_semitones=2, eq_low_db=1, eq_mid_db=0, eq_high_db=-2)
+voice_state = model.get_state_for_audio_prompt("./my_voice.wav", voice_profile=profile)
+export_model_state(voice_state, "my_voice.safetensors")
+
+# The saved profile is applied. Pass voice_profile to override it for one call.
+audio = model.generate_audio(voice_state, "Hello.")
+```
+
 ## Functions
 
 ### export_model_state

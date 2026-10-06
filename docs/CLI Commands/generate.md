@@ -30,6 +30,20 @@ This will generate a WAV file `./tts_output.wav` with the default text and voice
 - `--eos-threshold EOS_THRESHOLD`: EOS threshold (default: -4.0)
 - `--frames-after-eos FRAMES_AFTER_EOS`: Number of frames to generate after EOS (default: None, auto-calculated based on the text length). Each frame is 80ms.
 
+### Voice controls
+
+These are applied to the synthesized waveform. When the voice is a `.safetensors` file saved with `export-voice` or `tune-voice`, omitted flags keep the settings stored on that voice. Each value is limited to -24 through 24.
+
+- `--timbre TIMBRE`: Spectral brightness in dB. Positive is brighter.
+- `--pitch PITCH`: Pitch shift in semitones. Positive is higher. Duration stays the same.
+- `--eq-low EQ_LOW`: Low-band gain in dB (shelf around 200 Hz).
+- `--eq-mid EQ_MID`: Mid-band gain in dB (peak around 1 kHz).
+- `--eq-high EQ_HIGH`: High-band gain in dB (shelf around 5 kHz).
+
+```bash
+pocket-tts generate --voice ./my_voice.safetensors --text "Hello." --pitch 2 --timbre 3 --eq-high -2
+```
+
 ### Performance Options
 
 - `--device DEVICE`: Device to use (default: "cpu"). Whether GPU helps is hardware-dependent — see the main [README's "Running on GPU" section](../../README.md#running-on-gpu) for measured numbers (no speedup observed on some CPUs with strong single-thread performance like Apple Silicon, but a measured ~2.6x speedup on a cloud x86 VM with a Tesla T4).

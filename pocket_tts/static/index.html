@@ -85,7 +85,42 @@
             </p>
         </div>
 
-        
+        <div class="bg-white p-4 rounded-lg shadow space-y-3">
+            <h2 class="text-sm font-medium text-gray-700">Voice controls</h2>
+            <p class="text-xs text-gray-500">
+                Timbre is spectral brightness. Pitch is in semitones. EQ is low, mid, and high gain in dB.
+                Saving writes these settings onto the cloned voice so later synthesis uses them.
+            </p>
+            <label class="block text-sm text-gray-700" for="timbre">
+                Timbre (brightness) <span id="timbre-value">0</span> dB
+            </label>
+            <input id="timbre" type="range" min="-12" max="12" step="0.5" value="0" class="w-full" />
+            <label class="block text-sm text-gray-700" for="pitch">
+                Pitch <span id="pitch-value">0</span> semitones
+            </label>
+            <input id="pitch" type="range" min="-12" max="12" step="0.5" value="0" class="w-full" />
+            <label class="block text-sm text-gray-700" for="eq-low">
+                EQ low <span id="eq-low-value">0</span> dB
+            </label>
+            <input id="eq-low" type="range" min="-12" max="12" step="0.5" value="0" class="w-full" />
+            <label class="block text-sm text-gray-700" for="eq-mid">
+                EQ mid <span id="eq-mid-value">0</span> dB
+            </label>
+            <input id="eq-mid" type="range" min="-12" max="12" step="0.5" value="0" class="w-full" />
+            <label class="block text-sm text-gray-700" for="eq-high">
+                EQ high <span id="eq-high-value">0</span> dB
+            </label>
+            <input id="eq-high" type="range" min="-12" max="12" step="0.5" value="0" class="w-full" />
+            <button
+                id="save-voice-btn"
+                type="button"
+                class="w-full px-4 py-2 rounded text-white bg-gray-700 hover:bg-gray-800"
+            >
+                Save settings on this voice
+            </button>
+            <a id="voice-download" class="hidden text-blue-600 text-sm hover:underline">Download voice profile</a>
+        </div>
+
         <button
             id="generate-btn"
             class="w-full px-4 py-2 rounded text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
@@ -241,6 +276,21 @@
         // Application state
         let streamingPlayer = null;
         let currentAudioBlob = null;
+        let savedVoiceId = null;
+
+        for (const controlId of ['timbre', 'pitch', 'eq-low', 'eq-mid', 'eq-high']) {
+            const control = document.getElementById(controlId);
+            const readout = document.getElementById(`${controlId}-value`);
+            control.addEventListener('input', () => {
+                readout.textContent = control.value;
+            });
+        }
+        document.getElementById('voice-wav-input').addEventListener('change', () => {
+            savedVoiceId = null;
+        });
+        document.getElementById('voice-url-input').addEventListener('input', () => {
+            savedVoiceId = null;
+        });
 
         // DOM elements
         const textInput = document.getElementById('text-input');
@@ -255,6 +305,34 @@
 
         // Event listeners
         generateBtn.addEventListener('click', generateAudio);
+        document.getElementById('save-voice-btn').addEventListener('click', saveVoiceProfile);
+
+        function apiUrl(path) {
+            const base = window.location.pathname.replace(/\/+$/, '');
+            return `${base}${path}`;
+        }
+
+        function appendVoiceControls(formData) {
+            formData.append('timbre', document.getElementById('timbre').value);
+            formData.append('pitch', document.getElementById('pitch').value);
+            formData.append('eq_low', document.getElementById('eq-low').value);
+            formData.append('eq_mid', document.getElementById('eq-mid').value);
+            formData.append('eq_high', document.getElementById('eq-high').value);
+        }
+
+        function appendVoiceSource(formData) {
+            if (savedVoiceId) {
+                formData.append('voice_id', savedVoiceId);
+                return;
+            }
+            const voiceUrl = document.getElementById('voice-url-input').value.trim();
+            const voiceWavFile = document.getElementById('voice-wav-input').files[0];
+            if (voiceWavFile) {
+                formData.append('voice_wav', voiceWavFile);
+            } else if (voiceUrl) {
+                formData.append('voice_url', voiceUrl);
+            }
+        }
 
         function showStatus(message, isLoading = false) {
             statusText.textContent = message;
@@ -303,20 +381,10 @@
             try {
                 const formData = new FormData();
                 formData.append('text', text);
+                appendVoiceSource(formData);
+                appendVoiceControls(formData);
 
-                // Add voice URL if provided (only if no WAV file is uploaded)
-                const voiceUrl = document.getElementById('voice-url-input').value.trim();
-                const voiceWavFile = document.getElementById('voice-wav-input').files[0];
-
-                if (voiceWavFile) {
-                    // If WAV file is uploaded, only use the WAV file (ignore voice URL)
-                    formData.append('voice_wav', voiceWavFile);
-                } else if (voiceUrl) {
-                    // Only use voice URL if no WAV file is uploaded
-                    formData.append('voice_url', voiceUrl);
-                }
-
-                const ttsEndpoint = `${window.location.pathname.replace(/\/+$/, '')}/tts`;
+                const ttsEndpoint = apiUrl('/tts');
 
                 const response = await fetch(ttsEndpoint, {
                     method: 'POST',
@@ -387,6 +455,43 @@
                 // Re-enable button
                 generateBtn.disabled = false;
                 generateText.textContent = 'Generate Audio';
+            }
+        }
+
+        async function saveVoiceProfile() {
+            const saveButton = document.getElementById('save-voice-btn');
+            saveButton.disabled = true;
+            showStatus('Saving voice settings...', true);
+            try {
+                const formData = new FormData();
+                appendVoiceSource(formData);
+                appendVoiceControls(formData);
+                const response = await fetch(apiUrl('/voice/profile'), {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) {
+                    let detail = `Server error: ${response.status}`;
+                    try {
+                        const body = await response.json();
+                        if (body.detail) detail = body.detail;
+                    } catch (parseError) {
+                        console.error(parseError);
+                    }
+                    throw new Error(detail);
+                }
+                const saved = await response.json();
+                savedVoiceId = saved.voice_id;
+                const download = document.getElementById('voice-download');
+                download.href = apiUrl(`/voice/profile/${saved.voice_id}`);
+                download.download = `${saved.voice_id}.safetensors`;
+                download.classList.remove('hidden');
+                showStatus('Voice settings saved. Later synthesis with this voice uses them.', false);
+            } catch (error) {
+                console.error('Error saving voice profile:', error);
+                showStatus(`Error: ${error.message}`, false);
+            } finally {
+                saveButton.disabled = false;
             }
         }
 
