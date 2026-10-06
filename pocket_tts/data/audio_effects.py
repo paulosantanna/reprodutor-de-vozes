@@ -9,6 +9,7 @@ import math
 from collections.abc import Iterator
 
 import numpy as np
+import numpy.typing as npt
 import torch
 from scipy.signal import sosfilt
 
@@ -202,9 +203,9 @@ def _phase_vocoder(spec: torch.Tensor, rate: float, phase_advance: torch.Tensor)
     return stretched.reshape(shape[:-2] + stretched.shape[1:])
 
 
-def design_sos(sample_rate: int, profile: VoiceProfile) -> np.ndarray | None:
+def design_sos(sample_rate: int, profile: VoiceProfile) -> npt.NDArray[np.float64] | None:
     """Biquad sections for timbre tilt and the three EQ bands. None if all gains are 0."""
-    sections: list[np.ndarray] = []
+    sections: list[npt.NDArray[np.float64]] = []
     if abs(profile.timbre) >= 1e-6:
         half = profile.timbre / 2
         sections.append(_biquad("highshelf", sample_rate, _TIMBRE_PIVOT_HZ, half))
@@ -230,8 +231,8 @@ def _filter_block(audio: torch.Tensor, sample_rate: int, profile: VoiceProfile) 
 
 
 def _sos_filter(
-    audio: torch.Tensor, sos: np.ndarray | None, zi: np.ndarray | None
-) -> tuple[torch.Tensor, np.ndarray | None]:
+    audio: torch.Tensor, sos: npt.NDArray[np.float64] | None, zi: npt.NDArray[np.float64] | None
+) -> tuple[torch.Tensor, npt.NDArray[np.float64] | None]:
     if audio.numel() == 0 or sos is None or zi is None:
         return audio, zi
     filtered, next_zi = sosfilt(sos, audio.detach().cpu().numpy().astype(np.float64), zi=zi)
@@ -240,7 +241,7 @@ def _sos_filter(
 
 def _biquad(
     kind: str, sample_rate: int, freq_hz: float, gain_db: float, q: float = 0.707
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     nyquist = sample_rate / 2
     freq = min(max(freq_hz, 20.0), nyquist * 0.9)
     amp = 10 ** (gain_db / 40)
