@@ -132,8 +132,12 @@ def write_to_queue(
 
 
 def generate_data_with_state(
-    text_to_generate: str, model_state: ModelState, voice_profile: VoiceProfile | None
+    text_to_generate: str, model_state: ModelState, voice_profile: VoiceProfile | None = None
 ) -> Generator[bytes, None, None]:
+    """Stream WAV bytes for `text_to_generate`.
+
+    A missing `voice_profile` uses the profile stored on `model_state`.
+    """
     queue: Queue[bytes | None] = Queue()
     stop = threading.Event()
 
