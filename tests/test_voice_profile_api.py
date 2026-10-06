@@ -58,6 +58,7 @@ def test_tts_applies_request_controls(monkeypatch: pytest.MonkeyPatch):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/wav")
     profile = model.profiles[-1]
+    assert profile is not None
     assert profile.timbre == 4
     assert profile.pitch_semitones == -2
     assert profile.eq_low_db == 3
@@ -77,6 +78,7 @@ def test_saved_voice_profile_is_used_on_later_synthesis(
     later = client.post("/tts", data={"text": "Again.", "voice_id": voice_id})
     assert later.status_code == 200
     profile = model.profiles[-1]
+    assert profile is not None
     assert profile.pitch_semitones == 3
     assert profile.eq_high_db == -6
     assert profile.timbre == 1.5
@@ -95,8 +97,10 @@ def test_saved_voice_profile_is_used_on_later_synthesis(
     assert changed.json()["eq_high"] == -6
 
     client.post("/tts", data={"text": "After the change.", "voice_id": voice_id})
-    assert model.profiles[-1].pitch_semitones == -1
-    assert model.profiles[-1].eq_high_db == -6
+    retuned = model.profiles[-1]
+    assert retuned is not None
+    assert retuned.pitch_semitones == -1
+    assert retuned.eq_high_db == -6
 
 
 def test_tts_rejects_an_out_of_range_control(monkeypatch: pytest.MonkeyPatch):
@@ -116,4 +120,6 @@ def test_saving_the_default_voice_updates_later_requests(monkeypatch: pytest.Mon
 
     response = client.post("/tts", data={"text": "Using the default voice."})
     assert response.status_code == 200
-    assert model.profiles[-1].eq_low_db == 5
+    saved_default = model.profiles[-1]
+    assert saved_default is not None
+    assert saved_default.eq_low_db == 5
